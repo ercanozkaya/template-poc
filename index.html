@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Template Editor POC</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="h-screen m-0">
+    <div id="app" class="h-screen w-screen flex"></div>
+
+    <script type="text/javascript">
+
+// Create HTML content for iframe
+window.iframeContent = (data, code) => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Template Preview</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"><\/script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
+</head>
+<body class="p-4">
+    <div id="root"></div>
+    <script type="text/babel">
+        const queryResults = ${JSON.stringify(data)};
+        
+        ${code}
+        
+        ReactDOM.render(
+            React.createElement(Template, { queryResults }),
+            document.getElementById('root')
+        );
+    <\/script>
+</body>
+</html>
+`;
+    </script>
+
+    <!-- JSX Code Editor CDN (Monaco via CDN for simplicity) -->
+    <script src="https://unpkg.com/monaco-editor@0.52.2/min/vs/loader.js"></script>
+
+    <script type="module">
+      import { render, Fragment } from 'https://esm.sh/preact@10.26.3';
+      import { useState, useEffect } from 'https://esm.sh/preact@10.26.3/hooks';
+      import { html } from 'https://esm.sh/htm@3.1.1/preact';
+
+      let reactTypeDts = `// React types will be loaded dynamically`;
+
+      const App = () => {
+        const [query, setQuery] = useState('SELECT id, productTitle, quantity, price FROM products WHERE price > 100');
+        const [data, setData] = useState([]);
+        const [code, setCode] = useState(`function Template({ queryResults }: TemplateProps) {
+    if (!queryResults || queryResults.length === 0) {
+        return <div className="text-red-500 text-center p-4">No results found</div>;
+    }
+
+    return (
+    <table className="w-full border-collapse border border-gray-300">
+        <thead>
+            <tr className="bg-gray-100">
+                <th className="border border-gray-300 p-2 text-left">ID</th>
+                <th className="border border-gray-300 p-2 text-left">Product Title</th>
+                <th className="border border-gray-300 p-2 text-left">Qty</th>
+                <th className="border border-gray-300 p-2 text-left">Price</th>
+            </tr>
+        </thead>
+        <tbody>
+            {queryResults.map((item) => (
+                <tr key={item.id}>
+                    <td className="border border-gray-300 p-2">{item.id}</td>
+                    <td className="border border-gray-300 p-2">{item.productTitle}</td>
+                    <td className="border border-gray-300 p-2">{item.quantity}</td>
+                    <td className="border border-gray-300 p-2">{item.price.toFixed(2)}</td>
+                </tr>
+            ))}
+        </tbody>
+    </table>
+    );
+}`);
+        
+        const previewTemplate = () => {
+            console.log('Previewing template with code:', code);
+
+// Create modal with iframe
+const modal = document.createElement('div');
+modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+modal.innerHTML = `
+    <div class="bg-white p-6 rounded-lg w-4/5 h-4/5 flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Template Preview</h2>
+            <button id="closeModal" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        </div>
+        <iframe id="previewFrame" class="flex-1 border border-gray-300" src="about:blank"></iframe>
+    </div>
+`;
+
+document.body.appendChild(modal);
+
+// Close modal functionality
+document.getElementById('closeModal').onclick = () => {
+    document.body.removeChild(modal);
+};
+
+// Load content into iframe
+const iframe = document.getElementById('previewFrame');
+iframe.srcdoc = window.iframeContent(data || [], code || '');
+        };
+
+        const runQuery = () => {
+          try {
+            setTimeout(() => {
+                setData([
+                { id: 1, productTitle: 'Product A', quantity: 10, price: 1.50 },
+                { id: 2, productTitle: 'Product B', quantity: 5, price: 2.00 },
+            ]);
+            }, 1000);
+            
+          } catch (err) {
+            setData({ error: err.message });
+          }
+        };
+
+        useEffect(() => {
+          runQuery();
+          require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.44.0/min/vs' } });
+          require(['vs/editor/editor.main'], () => {
+            monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+                jsx: "react",
+	            allowNonTsExtensions: true,
+            });
+            monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                noSemanticValidation: false,
+                noSyntaxValidation: false
+            })
+                        
+            // extra libraries
+            const libSourceProper = `declare interface TemplateProps {
+                queryResults: {
+                    id: number;
+                    productTitle: string;
+                    quantity: number;
+                    price: number;
+                }[];
+            }
+            `;
+            const libUri = "ts:filename/facts.d.ts";
+
+            monaco.languages.typescript.typescriptDefaults.setExtraLibs([
+                { content: libSourceProper, filePath: libUri },
+                { content: reactTypeDts, filePath: "ts:filename/react.d.ts" }
+            ]);
+            //monaco.languages.typescript.javascriptDefaults.addExtraLib(libSourceProper, libUri);
+            // When resolving definitions and references, the editor will try to use created models.
+            // Creating a model for the library allows "peek definition/references" commands to work with the library.
+            //monaco.editor.createModel(libSourceProper, "typescript", monaco.Uri.parse(libUri));
+
+            const modelUri = monaco.Uri.file("foo.tsx")
+
+            // Important Bit #2
+            // By default, monaco use the "value" property to create its own model without
+            //  any extensions, so typescript assumes ".ts"
+            // We need to create a custom model using the desired file name (uri).
+            //  See the last arg.
+            const codeModel = monaco.editor.createModel(
+                code,
+                "typescript",
+                modelUri // Pass the file name to the model here.
+            );
+
+            const editor = monaco.editor.create(document.getElementById("editor"), {
+                //value: jsCode,
+                language: "typescript",
+                theme: "vs-light",
+                automaticLayout: true,
+                minimap: { enabled: false },
+                readOnlyMessage: {
+    value: "Please make your changes inside the function code itself.",
+},
+            });
+            // Important Bit #2.5: Tell typescript to use our model.
+            editor.setModel(codeModel);
+
+            editor.getModel().onDidChangeContent(() => {
+                setCode(editor.getValue());
+            });
+
+            editor.onDidChangeCursorPosition((event) => { 
+                const position = event.position;
+                
+                if (position.lineNumber === 1 || position.lineNumber === editor.getModel().getLineCount()) { 
+                    editor.updateOptions({ readOnly: true }); 
+                } else { 
+                    editor.updateOptions({ readOnly: false }); 
+                } 
+            });
+        
+            
+          });
+        }, []);
+
+        return html`
+          <div class="flex w-full h-full">
+            <div class="w-1/2 p-4 border-r border-gray-300 flex flex-col">
+              <label class="mb-2 font-bold text-sm">Custom Database Query</label>
+              <input
+                class="border p-2 mb-4 text-sm font-mono"
+                type="text"
+                readonly
+                value=${query}
+                onInput=${e => setQuery(e.target.value)}
+              />
+              <div class="flex">
+                <button
+                  class="bg-blue-500 w-1/2 text-white px-4 py-2 rounded hover:bg-blue-600"
+                  onClick=${runQuery}
+                >${!data || data.length === 0 ? html`<span class="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>` : ''}Run Query</button>
+                <button
+                  class="bg-green-500 w-1/2 text-white px-4 py-2 rounded hover:bg-green-600 ml-2"
+                  onClick=${previewTemplate}
+                >Preview Template</button>
+              </div>
+              <pre class="mt-4 p-2 bg-gray-100 text-xs overflow-auto h-full">
+${JSON.stringify(data, null, 2)}
+              </pre>
+            </div>
+            <div class="w-1/2 h-full" id="editor"></div>
+          </div>
+        `;
+      };
+
+      (async function renderApp() {
+        await fetch('https://cdn.jsdelivr.net/npm/@types/react@19/index.d.ts')
+          .then(response => response.text())
+          .then(text => {
+            reactTypeDts = text;
+          })
+          .catch(err => console.error('Failed to load react types:', err));
+
+          render(html`<${App } />`, document.getElementById('app'));
+      })();
+      
+    </script>
+  </body>
+</html>
